@@ -2,7 +2,17 @@
 name = "dydx-chain-stupid-node"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+author = ["Nolan Vanmoortel <mail@nolan.contact>"]
+description = "A stupidly simple implementation of the DYDX Chain, to better understand CometBFT, Cosmos SDK and DYDX, using Rust."
 
 [dependencies]
+# CLI
+clap = {version = "4.4", features = ["derive"]}
+# KECCAK transcript, used for encryption of peer connection
+merlin = "3.0.0"
+# X25519 keypair
+curve25519-dalek = { version = "4.1.1", features = ["rand_core"] }
+# Randomness for ED25519 private key generation
+rand_core = "0.6.4"
+# Communication are serialized with proto v3
+protobuf = "3.3.0"
