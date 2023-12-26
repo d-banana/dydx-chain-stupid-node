@@ -1,62 +1,81 @@
-mod handshake;
+pub mod setup;
 
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::net::{SocketAddr, TcpStream};
-use std::thread;
-use crate::connection::handshake::handshake;
+use std::{thread};
+use std::time::Duration;
+use curve25519_dalek::MontgomeryPoint;
+use crate::connection::setup::*;
+use crate::connection::setup::send_local_public_ephemeral::EphemeralED25519KeyPair;
 use crate::result::{Error, Result};
 
-pub struct Connection {
-        tcp_stream: TcpStream,
+#[macro_export]
+macro_rules! read_message {
+        ($self: expr, $size: expr) => {
+                {
+                       let mut buffer = [0u8;$size];
+                        $self.reader
+                                .read_exact(&mut buffer)
+                                .map_err(Error::TcpStreamReadFailed)?;
+                        buffer
+                }
+        }
 }
-impl Connection {
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ConnectionState{
+        Initialize,
+        EphemeralSent,
+        EphemeralReceived,
+        EphemeralShared,
+}
+
+#[derive(Debug)]
+pub struct Connection<R: Read, W: Write> {
+        reader: BufReader<R>,
+        writer: BufWriter<W>,
+        pub state: ConnectionState,
+        pub local_ephemeral_ed25519: Option<EphemeralED25519KeyPair>,
+        pub remote_public_ephemeral_ed25519: Option<MontgomeryPoint>
+}
+impl Connection<TcpStream, TcpStream> {
         pub fn try_new(ip: [u8; 4], port: u16) -> Result<Self>{
+                let tcp_stream = TcpStream::connect(SocketAddr::new(ip.into(), port))
+                        .map_err(Error::TcpStreamConnectFailed)?;
+                let reader = BufReader::new(tcp_stream
+                        .try_clone()
+                        .map_err(Error::TcpStreamCloneFailed)?);
+                let writer = BufWriter::new(tcp_stream
+                        .try_clone()
+                        .map_err(Error::TcpStreamCloneFailed)?);
+
                 Ok(Connection {
-                        tcp_stream: TcpStream::connect(SocketAddr::new(ip.into(), port))
-                                .map_err(Error::TcpStreamConnectFailed)?,
+                        reader,
+                        writer,
+                        state: ConnectionState::Initialize,
+                        local_ephemeral_ed25519: None,
+                        remote_public_ephemeral_ed25519: None,
+
                 })
         }
 
-        pub fn listen(&self) -> Result<()> {
-                let mut reader = BufReader::new(self.tcp_stream
-                        .try_clone()
-                        .map_err(Error::TcpStreamCloneFailed)?);
-                let is_handshake_done = false;
-
-                thread::spawn(move || {
+        pub fn run(mut self) -> Result<()> {
+                thread::spawn(move || -> Result<()> {
                         loop {
-                                // TODO how to manage the error inside a thread ? close peer connection ?
-                                let received = reader
-                                        .fill_buf()
-                                        .map_err(Error::TcpStreamReadFailed)
-                                        .unwrap();
-
-                                if !is_handshake_done {
-                                        // TODO Is it the best way to handle the asynchronicity ?
-                                        // TODO Listen receive packet => call each function => function try to parse it => return how much to consume or 0/error.
-                                        // TODO The first round of packet to start the secure connection is probably different than the future packet how to not make the code ugly ?
-                                        if let Ok(read_size) = handshake(received){
-                                                reader.consume(read_size);
+                                match self.state {
+                                        ConnectionState::Initialize => send_local_public_ephemeral::write_process(&mut self)?,
+                                        ConnectionState::EphemeralSent => receive_remote_public_ephemeral::read_process(&mut self)?,
+                                        ConnectionState::EphemeralReceived => {
+                                                println!("{:?}", self);
+                                                thread::sleep(Duration::from_secs(1))
                                         }
+                                        ConnectionState::EphemeralShared => {}
                                 }
                         }
+
+                        Ok(())
                 });
 
                 Ok(())
-        }
-}
-
-mod tests{
-        use protobuf::CodedOutputStream;
-        use crate::crypto::make_private_public_key_ed25519;
-
-        #[test]
-        pub fn handshake_success() {
-                let (_, public) = make_private_public_key_ed25519();
-                let public = public.as_bytes();
-                let mut buffer = Vec::with_capacity(35);
-                buffer.push(34);
-                CodedOutputStream::new(&mut buffer).write_bytes(1, public);
-                println!("{:?}", buffer);
         }
 }

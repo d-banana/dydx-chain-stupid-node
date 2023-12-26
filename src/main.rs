@@ -11,7 +11,7 @@ fn main() {
         let _args = Args::parse();
         let peer = Connection::try_new([127, 0, 0, 1], 26656)
                 .unwrap();
-        peer.listen();
+        peer.run();
         loop {
         }
 }
