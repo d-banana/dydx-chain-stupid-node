@@ -10,8 +10,8 @@ description = "A stupidly simple implementation of the DYDX Chain, to better und
 clap = {version = "4.4", features = ["derive"]}
 # KECCAK transcript, used for encryption of peer connection
 merlin = "3.0.0"
-# X25519 keypair
-curve25519-dalek = { version = "4.1.1", features = ["rand_core"] }
+# Signing message with ED25519
+ed25519-consensus = "2.1.0"
 # Randomness for ED25519 private key generation
 rand_core = "0.6.4"
 # Communication are serialized with proto v3

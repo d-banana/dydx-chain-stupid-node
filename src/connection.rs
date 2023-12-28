@@ -4,9 +4,9 @@ use std::io::{BufReader, BufWriter, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::{thread};
 use std::time::Duration;
-use curve25519_dalek::MontgomeryPoint;
-use crate::connection::setup::*;
-use crate::connection::setup::send_local_public_ephemeral::EphemeralED25519KeyPair;
+use ed25519_consensus::VerificationKey;
+use crate::connection::setup::{receive_remote_verification_key_ephemeral_ed25519, send_local_verification_key_ephemeral};
+use crate::connection::setup::send_local_verification_key_ephemeral::EphemeralED25519KeyPair;
 use crate::result::{Error, Result};
 
 #[macro_export]
@@ -36,7 +36,7 @@ pub struct Connection<R: Read, W: Write> {
         writer: BufWriter<W>,
         pub state: ConnectionState,
         pub local_ephemeral_ed25519: Option<EphemeralED25519KeyPair>,
-        pub remote_public_ephemeral_ed25519: Option<MontgomeryPoint>
+        pub remote_verification_key_ephemeral_ed25519: Option<VerificationKey>
 }
 impl Connection<TcpStream, TcpStream> {
         pub fn try_new(ip: [u8; 4], port: u16) -> Result<Self>{
@@ -54,7 +54,7 @@ impl Connection<TcpStream, TcpStream> {
                         writer,
                         state: ConnectionState::Initialize,
                         local_ephemeral_ed25519: None,
-                        remote_public_ephemeral_ed25519: None,
+                        remote_verification_key_ephemeral_ed25519: None,
 
                 })
         }
@@ -63,8 +63,8 @@ impl Connection<TcpStream, TcpStream> {
                 thread::spawn(move || -> Result<()> {
                         loop {
                                 match self.state {
-                                        ConnectionState::Initialize => send_local_public_ephemeral::write_process(&mut self)?,
-                                        ConnectionState::EphemeralSent => receive_remote_public_ephemeral::read_process(&mut self)?,
+                                        ConnectionState::Initialize => send_local_verification_key_ephemeral::write_process(&mut self)?,
+                                        ConnectionState::EphemeralSent => receive_remote_verification_key_ephemeral_ed25519::read_process(&mut self)?,
                                         ConnectionState::EphemeralReceived => {
                                                 println!("{:?}", self);
                                                 thread::sleep(Duration::from_secs(1))

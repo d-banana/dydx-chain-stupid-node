@@ -14,6 +14,9 @@ pub enum Error {
         // Packet empty
         PacketEmpty,
 
+        // ED25519
+        ParseVerificationKeyFailed(Vec<u8>, ed25519_consensus::Error),
+
         // Packet Malformed
         HandshakePacketMalformed(Vec<u8>),
 
