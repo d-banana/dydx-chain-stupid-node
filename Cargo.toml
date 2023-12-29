@@ -8,10 +8,18 @@ description = "A stupidly simple implementation of the DYDX Chain, to better und
 [dependencies]
 # CLI
 clap = {version = "4.4", features = ["derive"]}
-# KECCAK transcript, used for encryption of peer connection
+# Merlin used to generate a transcript which is used to generate a message authentication code
 merlin = "3.0.0"
 # Signing message with ED25519
 ed25519-consensus = "2.1.0"
+# Used for shared secret Diffie-Hellman
+x25519-dalek = { version = "2.0.0", features = ["static_secrets"] }
+# HKDF use to generate secreat key from a shared secret
+hkdf = "0.12.4"
+# SHA256 is use with HKDF
+sha2 = "0.10.8"
+# ChaCha20Poly1305 is used to generate encryption key
+chacha20poly1305 = "0.10.1"
 # Randomness for ED25519 private key generation
 rand_core = "0.6.4"
 # Communication are serialized with proto v3

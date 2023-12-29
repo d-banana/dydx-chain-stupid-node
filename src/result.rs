@@ -17,6 +17,11 @@ pub enum Error {
         // ED25519
         ParseVerificationKeyFailed(Vec<u8>, ed25519_consensus::Error),
 
+        // Missing state
+        LocalEphemeralKeyMissing,
+        RemoteEphemeralKeyMissing,
+        SharedSecretMissing,
+
         // Packet Malformed
         HandshakePacketMalformed(Vec<u8>),
 

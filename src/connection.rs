@@ -3,10 +3,15 @@ pub mod setup;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::{thread};
-use std::time::Duration;
-use ed25519_consensus::VerificationKey;
-use crate::connection::setup::{receive_remote_verification_key_ephemeral_ed25519, send_local_verification_key_ephemeral};
-use crate::connection::setup::send_local_verification_key_ephemeral::EphemeralED25519KeyPair;
+use chacha20poly1305::ChaCha20Poly1305;
+use ed25519_consensus::{SigningKey, VerificationKey};
+use rand_core::OsRng;
+use x25519_dalek::SharedSecret;
+use crate::connection::setup::{
+        receive_remote_verification_key_ephemeral,
+        send_local_verification_key_ephemeral,
+        make_encryption_keys
+};
 use crate::result::{Error, Result};
 
 #[macro_export]
@@ -27,17 +32,38 @@ pub enum ConnectionState{
         Initialize,
         EphemeralSent,
         EphemeralReceived,
-        EphemeralShared,
+        EncryptionKeysMade,
+        AuthenticationDone,
 }
 
 #[derive(Debug)]
+pub struct EphemeralKeyPair{
+        pub signing: SigningKey,
+        pub verification: VerificationKey,
+}
+
+impl Default for EphemeralKeyPair {
+        fn default() -> Self{
+                let signing = SigningKey::new(OsRng);
+                let verification = signing.verification_key();
+                EphemeralKeyPair{
+                        signing,
+                        verification,
+                }
+        }
+}
+
 pub struct Connection<R: Read, W: Write> {
         reader: BufReader<R>,
         writer: BufWriter<W>,
         pub state: ConnectionState,
-        pub local_ephemeral_ed25519: Option<EphemeralED25519KeyPair>,
-        pub remote_verification_key_ephemeral_ed25519: Option<VerificationKey>
+        pub local_ephemeral: Option<EphemeralKeyPair>,
+        pub remote_verification_key_ephemeral: Option<VerificationKey>,
+        pub reader_encryption_key: Option<ChaCha20Poly1305>,
+        pub writer_encryption_key: Option<ChaCha20Poly1305>,
+        pub diffie_hellman_shared_secret: Option<SharedSecret>,
 }
+
 impl Connection<TcpStream, TcpStream> {
         pub fn try_new(ip: [u8; 4], port: u16) -> Result<Self>{
                 let tcp_stream = TcpStream::connect(SocketAddr::new(ip.into(), port))
@@ -53,8 +79,11 @@ impl Connection<TcpStream, TcpStream> {
                         reader,
                         writer,
                         state: ConnectionState::Initialize,
-                        local_ephemeral_ed25519: None,
-                        remote_verification_key_ephemeral_ed25519: None,
+                        local_ephemeral: None,
+                        remote_verification_key_ephemeral: None,
+                        reader_encryption_key: None,
+                        writer_encryption_key: None,
+                        diffie_hellman_shared_secret: None,
 
                 })
         }
@@ -64,12 +93,10 @@ impl Connection<TcpStream, TcpStream> {
                         loop {
                                 match self.state {
                                         ConnectionState::Initialize => send_local_verification_key_ephemeral::write_process(&mut self)?,
-                                        ConnectionState::EphemeralSent => receive_remote_verification_key_ephemeral_ed25519::read_process(&mut self)?,
-                                        ConnectionState::EphemeralReceived => {
-                                                println!("{:?}", self);
-                                                thread::sleep(Duration::from_secs(1))
-                                        }
-                                        ConnectionState::EphemeralShared => {}
+                                        ConnectionState::EphemeralSent => receive_remote_verification_key_ephemeral::read_process(&mut self)?,
+                                        ConnectionState::EphemeralReceived => make_encryption_keys::process(&mut self)?,
+                                        ConnectionState::EncryptionKeysMade => {}
+                                        _ => {}
                                 }
                         }
 
