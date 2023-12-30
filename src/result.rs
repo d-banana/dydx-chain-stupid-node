@@ -11,8 +11,9 @@ pub enum Error {
         TcpStreamWriteFailed(io::Error),
         ConnectionStateUpdateImpossible(ConnectionState, ConnectionState),
 
-        // Packet empty
-        PacketEmpty,
+        // Message empty
+        MessageEmpty,
+        MessageChunkTooBig,
 
         // ED25519
         ParseVerificationKeyFailed(Vec<u8>, ed25519_consensus::Error),
@@ -21,11 +22,16 @@ pub enum Error {
         LocalEphemeralKeyMissing,
         RemoteEphemeralKeyMissing,
         SharedSecretMissing,
+        EncryptionKeyMissing,
 
-        // Packet Malformed
-        HandshakePacketMalformed(Vec<u8>),
+        // Message Malformed
+        HandshakeMessageMalformed(Vec<u8>),
 
         //Proto
         ProtoWriteFailed(protobuf::Error),
+
+        //Encryption
+        EncryptFailed(chacha20poly1305::aead::Error),
+        NounceTooBig,
 
 }

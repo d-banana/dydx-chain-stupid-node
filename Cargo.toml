@@ -24,3 +24,7 @@ chacha20poly1305 = "0.10.1"
 rand_core = "0.6.4"
 # Communication are serialized with proto v3
 protobuf = "3.3.0"
+
+[build-dependencies]
+# Generate rust struct for proto at compilation time
+protobuf-codegen = "3.3.0"

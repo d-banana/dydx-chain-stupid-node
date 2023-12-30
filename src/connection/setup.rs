@@ -12,6 +12,7 @@ use hkdf::Hkdf;
 use sha2::Sha256;
 use x25519_dalek::SharedSecret;
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
+use crate::proto_rust;
 
 const MESSAGE_VERIFICATION_KEY_EPHEMERAL_SIZE: usize = 35;
 
@@ -28,11 +29,11 @@ pub mod receive_remote_verification_key_ephemeral{
         }
 
         fn parse_message_to_verification_key_ephemeral(message: &[u8; MESSAGE_VERIFICATION_KEY_EPHEMERAL_SIZE]) -> Result<VerificationKey>{
-                let packet_size = message[0];
+                let message_size = message[0];
 
-                let is_announced_packet_size_correct = packet_size as usize != MESSAGE_VERIFICATION_KEY_EPHEMERAL_SIZE - 1;
-                if is_announced_packet_size_correct {
-                        return Err(Error::HandshakePacketMalformed(message.to_vec()));
+                let is_announced_message_size_correct = message_size as usize != MESSAGE_VERIFICATION_KEY_EPHEMERAL_SIZE - 1;
+                if is_announced_message_size_correct {
+                        return Err(Error::HandshakeMessageMalformed(message.to_vec()));
                 }
 
                 message.get(3..MESSAGE_VERIFICATION_KEY_EPHEMERAL_SIZE)
@@ -61,6 +62,8 @@ pub mod receive_remote_verification_key_ephemeral{
                                 reader_encryption_key: None,
                                 writer_encryption_key: None,
                                 diffie_hellman_shared_secret: None,
+                                write_nounce: 0,
+                                read_nounce: 0,
                         };
 
                         let result = read_process(&mut connection);
@@ -111,6 +114,8 @@ pub mod send_local_verification_key_ephemeral{
                                 reader_encryption_key: None,
                                 writer_encryption_key: None,
                                 diffie_hellman_shared_secret: None,
+                                write_nounce: 0,
+                                read_nounce: 0,
                         };
 
                         let result = write_process(&mut connection);
@@ -160,6 +165,7 @@ pub mod make_encryption_keys {
 
                 connection.reader_encryption_key = Some(chacha_encryption_keys.reader);
                 connection.writer_encryption_key = Some(chacha_encryption_keys.writer);
+                connection.diffie_hellman_shared_secret = Some(diffie_hellman_shared_secret);
                 connection.state = ConnectionState::EncryptionKeysMade;
 
                 Ok(())
@@ -216,11 +222,35 @@ pub mod make_encryption_keys {
 
         mod tests {
                 use super::*;
-                // TODO add tests
+
+                #[test]
+                pub fn process_success() {
+                        let local_ephemeral = EphemeralKeyPair::default();
+                        let remote_ephemeral = EphemeralKeyPair::default();
+                        let mut connection = Connection{
+                                reader: BufReader::new(Cursor::new(Vec::new())),
+                                writer: BufWriter::new(Cursor::new(Vec::new())),
+                                state: ConnectionState::Initialize,
+                                local_ephemeral: Some(local_ephemeral.clone()),
+                                remote_verification_key_ephemeral: Some(remote_ephemeral.clone().verification),
+                                reader_encryption_key: None,
+                                writer_encryption_key: None,
+                                diffie_hellman_shared_secret: None,
+                                write_nounce: 0,
+                                read_nounce: 0,
+                        };
+
+                        assert!(process(&mut connection).is_ok());
+                        assert!(connection.reader_encryption_key.is_some());
+                        assert!(connection.writer_encryption_key.is_some());
+                        assert!(connection.diffie_hellman_shared_secret.is_some());
+                        assert_eq!(connection.state, ConnectionState::EncryptionKeysMade);
+                }
         }
 }
 
 pub mod send_receive_authentication{
+        use protobuf::Message;
         use super::*;
         pub fn read_write_process<R: Read, W: Write>(connection: &mut Connection<R, W>) -> Result<()> {
                 let local_ephemeral = connection.local_ephemeral
@@ -246,7 +276,27 @@ pub mod send_receive_authentication{
                 let mut message_authentication_code = [0u8; 32];
                 transcript.challenge_bytes(b"SECRET_CONNECTION_MAC", &mut message_authentication_code);
                 let signed_message_authentication_code = local_ephemeral.signing.sign(&message_authentication_code);
-                // TODO send/receive + check
+
+                let mut authentication_signature_message =
+                        proto_rust::authentication_signature_message::AuthenticationSignatureMessage::new();
+                authentication_signature_message.signature = signed_message_authentication_code
+                        .to_bytes()
+                        .to_vec();
+                authentication_signature_message
+                        .verification_key
+                        .as_mut()
+                        .unwrap()
+                        .set_ed25519(
+                                local_ephemeral
+                                        .verification
+                                        .as_bytes()
+                                        .to_vec()
+                        );
+                let message_to_send = authentication_signature_message
+                        .write_length_delimited_to_bytes()
+                        .unwrap();
+
+                // TODO refactor code + send/receive + check
 
                 Ok(())
         }

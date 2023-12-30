@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+message VerificationKey {
+        oneof sum {
+                bytes ed25519 = 1;
+                bytes secp256k1 = 2;
+        }
+}
+
+message AuthenticationSignatureMessage {
+        VerificationKey verification_key = 1;
+        bytes signature = 2;
+}
