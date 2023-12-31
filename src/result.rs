@@ -1,33 +1,29 @@
 use std::{io};
-use crate::connection::ConnectionState;
 
 pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
         // TCP Stream
         TcpStreamConnectFailed(io::Error),
-        TcpStreamReadFailed(io::Error),
         TcpStreamCloneFailed(io::Error),
-        TcpStreamWriteFailed(io::Error),
-        ConnectionStateUpdateImpossible(ConnectionState, ConnectionState),
+
+        // Buffer stream
+        StreamReadFailed(io::Error),
+        StreamWriteFailed(io::Error),
 
         // Message empty
-        MessageEmpty,
         MessageChunkTooBig,
 
-        // ED25519
-        ParseVerificationKeyFailed(Vec<u8>, ed25519_consensus::Error),
-
         // Missing state
-        LocalEphemeralKeyMissing,
-        RemoteEphemeralKeyMissing,
+        RemoteVerificationMissing,
         SharedSecretMissing,
         EncryptionKeyMissing,
 
         // Message Malformed
-        HandshakeMessageMalformed(Vec<u8>),
+        MessageVerificationBadSize(Vec<u8>),
 
         //Proto
+        ProtoBuildFailed,
         ProtoWriteFailed(protobuf::Error),
 
         //Encryption

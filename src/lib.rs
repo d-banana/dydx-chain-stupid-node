@@ -1,4 +1,4 @@
-pub mod connection;
+pub mod peer;
 pub mod result;
 
 pub mod proto_rust {

@@ -7,7 +7,7 @@ message VerificationKey {
         }
 }
 
-message AuthenticationSignatureMessage {
+message SignedAuthenticationMessage {
         VerificationKey verification_key = 1;
-        bytes signature = 2;
+        bytes signed_authentication = 2;
 }
