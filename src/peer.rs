@@ -44,7 +44,7 @@ impl Peer {
                         loop {
                                 match self.action {
                                         PeerAction::Authenticate => self.authenticate()?,
-                                        _ => {}
+                                        PeerAction::Listen => {}
                                 }
                         }
 

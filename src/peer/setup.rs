@@ -274,6 +274,7 @@ pub mod read_write_authentication{
                         .to_bytes()
                         .to_vec();
 
+                // TODO failed here need to print when thread failed !
                 let verification_key = signed_authentication_message
                         .verification_key
                         .as_mut()
