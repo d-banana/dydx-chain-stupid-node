@@ -78,15 +78,16 @@ pub mod read_remote_verification {
         fn parse_message_to_verification(message: &[u8; MESSAGE_VERIFICATION_SIZE]) -> Result<VerificationKey>{
                 let message_size = message[0];
 
-                let is_announced_message_size_correct = message_size as usize != MESSAGE_VERIFICATION_SIZE - 1;
-                if is_announced_message_size_correct {
+                let is_announced_message_size_correct = message_size as usize == MESSAGE_VERIFICATION_SIZE - 1;
+                if !is_announced_message_size_correct {
                         return Err(Error::MessageVerificationBadSize(message.to_vec()));
                 }
 
+                // TODO sometimes throw an error => https://github.com/penumbra-zone/ed25519-consensus/issues/10
                 message.get(3..MESSAGE_VERIFICATION_SIZE)
                         .expect("35 - 3 = 32")
                         .try_into()
-                        .map_err(|_| Error::MessageVerificationBadSize(message.to_vec()))
+                        .map_err(Error::VerificationKeyIncorrect)
         }
 
         #[cfg(test)]
@@ -274,17 +275,11 @@ pub mod read_write_authentication{
                         .to_bytes()
                         .to_vec();
 
-                // TODO failed here need to print when thread failed !
-                let verification_key = signed_authentication_message
-                        .verification_key
-                        .as_mut()
-                        .ok_or(Error::ProtoBuildFailed)?;
-
-                verification_key.set_ed25519(
-                        local_verification
-                                .as_bytes()
-                                .to_vec()
-                );
+                signed_authentication_message.verification_key
+                        .mut_or_insert_default()
+                        .set_ed25519(
+                                local_verification.as_bytes().to_vec()
+                        );
 
                 signed_authentication_message
                         .write_length_delimited_to_bytes()
@@ -293,7 +288,23 @@ pub mod read_write_authentication{
 
         #[cfg(test)]
         mod tests {
+                use rand_core::OsRng;
                 use super::*;
+
                 // TODO add tests
+                #[test]
+                pub fn make_signed_authentication_message_success() {
+                        let local_signing = &SigningKey::new(OsRng);
+                        let local_verification = &local_signing.verification_key();
+                        let authentication_code = &[8u8;32];
+
+                        let result = make_signed_authentication_message(
+                                local_signing,
+                                local_verification,
+                                authentication_code
+                        );
+
+                        assert!(result.is_ok());
+                }
         }
 }

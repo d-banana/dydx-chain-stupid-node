@@ -28,6 +28,7 @@ pub struct ConnectionFake {
 
 impl Connection {
         pub fn write_all(&mut self, message: &[u8]) -> Result<()>{
+                println!("Write: {:?}", message);
                 match self {
                         Connection::Tcp(tcp) => tcp.writer
                                         .write_all(message)
@@ -38,11 +39,15 @@ impl Connection {
 
         pub fn read_exact(&mut self, message: &mut [u8]) -> Result<()> {
                 match self {
-                        Connection::Tcp(tcp) => tcp.reader
-                                        .read_exact(message)
-                                        .map_err(Error::StreamReadFailed),
+                        Connection::Tcp(tcp) =>tcp.reader
+                                .read_exact(message)
+                                .map_err(Error::StreamReadFailed),
                         Connection::Fake(fake) => fake.read_exact(message),
-                }
+                }?;
+
+                println!("Read: {:?}", message);
+
+                Ok(())
         }
 
         pub fn write_all_encrypted(&mut self, message_raw: &[u8], encryption_key: &ChaCha20Poly1305, nounce: &mut u128) -> Result<()> {

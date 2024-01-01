@@ -42,9 +42,14 @@ impl Peer {
         pub fn run(mut self) -> Result<()> {
                 thread::spawn(move || -> Result<()> {
                         loop {
-                                match self.action {
-                                        PeerAction::Authenticate => self.authenticate()?,
-                                        PeerAction::Listen => {}
+                                let result = match self.action {
+                                        PeerAction::Authenticate => self.authenticate(),
+                                        PeerAction::Listen => {Ok(())}
+                                };
+
+                                if let Err(e) = result{
+                                        println!("Error: {:?}", e);
+                                        return Err(e);
                                 }
                         }
 

@@ -19,12 +19,14 @@ pub enum Error {
         SharedSecretMissing,
         EncryptionKeyMissing,
 
-        // Message Malformed
+        // Authentication
         MessageVerificationBadSize(Vec<u8>),
+        VerificationKeyIncorrect(ed25519_consensus::Error),
 
         //Proto
         ProtoBuildFailed,
         ProtoWriteFailed(protobuf::Error),
+
 
         //Encryption
         EncryptFailed(chacha20poly1305::aead::Error),
