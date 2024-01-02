@@ -14,17 +14,10 @@ pub enum Error {
         // Message empty
         MessageChunkTooBig,
 
-        // Missing state
-        RemoteVerificationMissing,
-        SharedSecretMissing,
-        EncryptionKeyMissing,
-
         // Authentication
-        MessageVerificationBadSize(Vec<u8>),
-        VerificationKeyIncorrect(ed25519_consensus::Error),
+        MessageEphemeralPublicBadSize(Vec<u8>),
 
         //Proto
-        ProtoBuildFailed,
         ProtoWriteFailed(protobuf::Error),
 
 

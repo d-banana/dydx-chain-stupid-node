@@ -3,16 +3,19 @@ mod connection;
 mod encryption;
 
 use std::{thread};
-use ed25519_consensus::SigningKey;
 use rand_core::OsRng;
-use x25519_dalek::{PublicKey, StaticSecret};
+use x25519_dalek::{
+        EphemeralSecret as EphemeralSecret,
+        PublicKey as EphemeralPublic,
+};
+use crate::config::Config;
 use crate::result::{Result};
 use crate::peer::{
         connection::*,
         encryption::Encryption,
         setup::{
-                read_remote_verification::read_remote_verification,
-                write_local_verification::write_local_verification,
+                read_remote_ephemeral_public::read_remote_ephemeral_public,
+                write_local_ephemeral_public::write_local_ephemeral_public,
                 make_encryption_keys::make_encryption_keys,
                 read_write_authentication::read_write_authentication
         }
@@ -25,14 +28,16 @@ pub enum PeerAction {
 }
 
 pub struct Peer {
+        pub config: Config,
         pub connection: Connection,
         pub action: PeerAction,
         pub encryption: Option<Encryption>,
 }
 
 impl Peer {
-        pub fn try_new_tcp(ip: [u8; 4], port: u16) -> Result<Self>{
+        pub fn try_new_tcp(config: &Config, ip: [u8; 4], port: u16) -> Result<Self>{
                 Ok(Peer {
+                        config: config.clone(),
                         connection: Connection::Tcp(ConnectionTcp::try_new(ip, port)?),
                         action: PeerAction::Authenticate,
                         encryption: None
@@ -60,31 +65,30 @@ impl Peer {
         }
 
         fn authenticate(&mut self) -> Result<()>{
-                let local_signing = &SigningKey::new(OsRng);
-                let local_verification = &local_signing.verification_key();
+                let local_ephemeral_secret = EphemeralSecret::random_from_rng(OsRng);
+                let local_ephemeral_public = EphemeralPublic::from(&local_ephemeral_secret);
 
-                write_local_verification(
+                write_local_ephemeral_public(
                         &mut self.connection,
-                        local_verification
+                        &local_ephemeral_public
                 )?;
 
-                let remote_verification = &read_remote_verification(
+                let remote_ephemeral_public = read_remote_ephemeral_public(
                         &mut self.connection)?;
 
-                let shared_secret = &StaticSecret::from(
-                        *local_signing.as_bytes()
-                ).diffie_hellman(&PublicKey::from(*remote_verification.as_bytes()));
+                let shared_secret = local_ephemeral_secret
+                        .diffie_hellman(&remote_ephemeral_public);
 
                 self.encryption = Some(make_encryption_keys(
-                        local_verification < remote_verification,
-                        shared_secret
+                        local_ephemeral_public.as_bytes() < remote_ephemeral_public.as_bytes(),
+                        &shared_secret
                 )?);
 
                 read_write_authentication(
-                        local_signing,
-                        local_verification,
-                        remote_verification,
-                        shared_secret,
+                        &self.config.signing_key,
+                        &local_ephemeral_public,
+                        &remote_ephemeral_public,
+                        &shared_secret,
                         &mut self.connection,
                         self.encryption
                                 .as_mut()
@@ -100,6 +104,7 @@ impl Peer {
 impl Default for Peer {
         fn default() -> Self {
                 Peer {
+                        config: Config::default(),
                         connection: Connection::Fake(ConnectionFake::default()),
                         action: PeerAction::Authenticate,
                         encryption: Default::default(),
