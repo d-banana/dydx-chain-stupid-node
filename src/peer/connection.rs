@@ -1,12 +1,13 @@
 use std::io;
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::net::{SocketAddr, TcpStream};
-use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305};
+use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305, Tag};
 use crate::result::{Error, Result};
 
 const POLY1305_AUTHENTICATION_TAG_BYTE_SIZE: usize = 16;
 const MESSAGE_CHUNK_BYTE_SIZE: usize = 1_024;
 const MESSAGE_CHUNK_LEN_BYTE_SIZE: usize = 4;
+pub const MESSAGE_CHUNK_TOTAL_SIZE: usize = MESSAGE_CHUNK_BYTE_SIZE + MESSAGE_CHUNK_LEN_BYTE_SIZE + POLY1305_AUTHENTICATION_TAG_BYTE_SIZE;
 const NOUNCE_BYTE_SIZE: usize = 12;
 const NOUNCE_MAX: u128 = 2u128.pow(96) - 1;
 
@@ -30,9 +31,14 @@ impl Connection {
         pub fn write_all(&mut self, message: &[u8]) -> Result<()>{
                 println!("Write: {:?}", message);
                 match self {
-                        Connection::Tcp(tcp) => tcp.writer
+                        Connection::Tcp(tcp) => {
+                                tcp.writer
                                         .write_all(message)
-                                        .map_err(Error::StreamWriteFailed),
+                                        .map_err(Error::StreamWriteFailed)?;
+                                tcp.writer
+                                        .flush()
+                                        .map_err(Error::StreamWriteFailed)
+                        },
                         Connection::Fake(fake) => fake.write_all(message),
                 }
         }
@@ -68,6 +74,32 @@ impl Connection {
                 }
 
                 Ok(())
+        }
+
+        pub fn read_next_message_encrypted(&mut self, encryption_key: &ChaCha20Poly1305, nounce: &mut u128) -> Result<Vec<u8>> {
+                let mut message_raw = Vec::new();
+
+                let mut message_raw_chunk_len = MESSAGE_CHUNK_BYTE_SIZE;
+
+                while message_raw_chunk_len == MESSAGE_CHUNK_BYTE_SIZE {
+                        let mut message_encrypted_chunk = [0u8; MESSAGE_CHUNK_TOTAL_SIZE];
+                        self.read_exact(&mut message_encrypted_chunk)?;
+
+                        let (message_raw_chunk_len_new, message_raw_chunk) = decrypt_message_chunk(
+                                &message_encrypted_chunk,
+                                encryption_key,
+                                nounce
+                        )?;
+
+                        message_raw_chunk_len = message_raw_chunk_len_new as usize;
+                        message_raw.extend_from_slice(
+                                message_raw_chunk
+                                        .get(..message_raw_chunk_len)
+                                        .expect("Fix size")
+                        );
+                }
+
+                Ok(message_raw)
         }
 
         pub fn connection_fake_mut(&mut self) -> &mut ConnectionFake{
@@ -148,10 +180,10 @@ fn encrypt_message_chunk(
         message_raw_chunk: &[u8],
         encryption_key: &ChaCha20Poly1305,
         nounce: &mut u128
-) -> Result<[u8;MESSAGE_CHUNK_BYTE_SIZE + MESSAGE_CHUNK_LEN_BYTE_SIZE + POLY1305_AUTHENTICATION_TAG_BYTE_SIZE]>{
+) -> Result<[u8;MESSAGE_CHUNK_TOTAL_SIZE]>{
         let mut message_encrypted_chunk = [
                 0u8;
-                MESSAGE_CHUNK_BYTE_SIZE + MESSAGE_CHUNK_LEN_BYTE_SIZE + POLY1305_AUTHENTICATION_TAG_BYTE_SIZE
+                MESSAGE_CHUNK_TOTAL_SIZE
         ];
 
         let message_len_bytes = message_raw_chunk
@@ -168,8 +200,7 @@ fn encrypt_message_chunk(
 
         let tag = encryption_key
                 .encrypt_in_place_detached(
-                        nounce
-                                .to_le_bytes()
+                        nounce.to_le_bytes()
                                 [..NOUNCE_BYTE_SIZE]
                                 .into(),
                         b"",
@@ -187,4 +218,44 @@ fn encrypt_message_chunk(
                 .copy_from_slice(tag.as_slice());
 
         Ok(message_encrypted_chunk)
+}
+
+fn decrypt_message_chunk(
+        message_encrypted_chunk: &[u8; MESSAGE_CHUNK_TOTAL_SIZE],
+        encryption_key: &ChaCha20Poly1305,
+        nounce: &mut u128
+) -> Result<(u32, [u8; MESSAGE_CHUNK_BYTE_SIZE])>{
+        let (message_encrypted_chunk, tag) = message_encrypted_chunk
+                .split_at(MESSAGE_CHUNK_BYTE_SIZE + MESSAGE_CHUNK_LEN_BYTE_SIZE);
+
+        let mut message_raw_chunk = [0u8; MESSAGE_CHUNK_BYTE_SIZE + MESSAGE_CHUNK_LEN_BYTE_SIZE];
+        message_raw_chunk.copy_from_slice(message_encrypted_chunk);
+
+        encryption_key.decrypt_in_place_detached(
+                nounce.to_le_bytes()
+                        [..NOUNCE_BYTE_SIZE]
+                        .into(),
+                b"",
+                &mut message_raw_chunk,
+                tag.into()
+        ).map_err(Error::DecryptFailed)?;
+
+        *nounce += 1;
+        if *nounce >= NOUNCE_MAX {
+                return Err(Error::NounceTooBig);
+        }
+
+        Ok((
+                u32::from_le_bytes(
+                        message_raw_chunk
+                                .get(..MESSAGE_CHUNK_LEN_BYTE_SIZE)
+                                .expect("fix size")
+                                .try_into()
+                                .expect("fix size")
+                ),
+                message_raw_chunk.get(MESSAGE_CHUNK_LEN_BYTE_SIZE..)
+                        .expect("fix size")
+                        .try_into()
+                        .expect("fix size")
+        ))
 }

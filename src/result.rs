@@ -16,13 +16,19 @@ pub enum Error {
 
         // Authentication
         MessageEphemeralPublicBadSize(Vec<u8>),
+        RemoteVerificationKeyMissing,
+        RemoteVerificationKeyDoesntMatch(Vec<u8>, Vec<u8>),
+        SignedAuthenticationMessageMalformed,
+        RemotePeerSignatureVerificationFailed(ed25519_consensus::Error),
 
         //Proto
         ProtoWriteFailed(protobuf::Error),
+        ProtoReadFailed(protobuf::Error),
 
 
         //Encryption
         EncryptFailed(chacha20poly1305::aead::Error),
+        DecryptFailed(chacha20poly1305::aead::Error),
         NounceTooBig,
 
 }

@@ -5,7 +5,8 @@ use sha2::Sha256;
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
 use protobuf::Message;
 use x25519_dalek::{SharedSecret, PublicKey as EphemeralPublic};
-use ed25519_consensus::SigningKey;
+use ed25519_consensus::{SigningKey, VerificationKey};
+use protobuf::CodedInputStream;
 
 use crate::result::{Result, Error};
 use crate::proto_rust;
@@ -13,6 +14,7 @@ use crate::peer::{
         connection::*,
         encryption::*
 };
+use proto_rust::signed_authentication_message::SignedAuthenticationMessage;
 
 const MESSAGE_EPHEMERAL_PUBLIC_SIZE: usize = 35;
 
@@ -232,9 +234,13 @@ pub mod read_write_authentication{
                         &mut encryption.write_nounce
                 )?;
 
-                // TODO receive + check
+                let remote_signed_authentication_message =
+                        read_signed_authentication_message(connection, encryption)?;
 
-                Ok(())
+                check_signed_authentication_message(
+                        &remote_signed_authentication_message,
+                        shared_secret
+                )
         }
 
         fn make_authentication_challenge_code(
@@ -269,8 +275,7 @@ pub mod read_write_authentication{
         ) -> Result<Vec<u8>>{
                 let signed_authentication_code = signing_key.sign(authentication_code);
 
-                let mut signed_authentication_message =
-                        proto_rust::signed_authentication_message::SignedAuthenticationMessage::new();
+                let mut signed_authentication_message = SignedAuthenticationMessage::new();
 
                 signed_authentication_message.signed_authentication = signed_authentication_code
                         .to_bytes()
@@ -285,6 +290,49 @@ pub mod read_write_authentication{
                 signed_authentication_message
                         .write_length_delimited_to_bytes()
                         .map_err(Error::ProtoWriteFailed)
+        }
+
+        fn read_signed_authentication_message(
+                connection: &mut Connection,
+                encryption: &mut Encryption
+        ) -> Result<SignedAuthenticationMessage>{
+                let remote_signed_authentication_message = connection
+                        .read_next_message_encrypted(
+                                &encryption.reader_key,
+                                &mut encryption.read_nounce
+                        )?;
+
+                let mut coded_input_stream = CodedInputStream::from_bytes(
+                        remote_signed_authentication_message.as_slice());
+                coded_input_stream.read_uint32().map_err(Error::ProtoReadFailed)?;
+
+                SignedAuthenticationMessage::parse_from_reader(&mut coded_input_stream)
+                        .map_err(Error::ProtoReadFailed)
+        }
+
+        fn check_signed_authentication_message(
+                signed_authentication_message: &SignedAuthenticationMessage,
+                shared_secret: &SharedSecret,
+        ) -> Result<()>{
+                let remote_verification = signed_authentication_message
+                        .verification_key
+                        .as_ref()
+                        .ok_or(Error::RemoteVerificationKeyMissing)?;
+                if !remote_verification.has_ed25519(){
+                        return Err(Error::RemoteVerificationKeyMissing);
+                }
+                let remote_verification = VerificationKey::try_from(
+                        remote_verification.ed25519()
+                ).map_err(|_| Error::SignedAuthenticationMessageMalformed)?;
+
+                remote_verification.verify(
+                        &signed_authentication_message
+                                .signed_authentication
+                                .as_slice()
+                                .try_into()
+                                .map_err(|_| Error::SignedAuthenticationMessageMalformed)?,
+                        shared_secret.as_bytes()
+                ).map_err(Error::RemotePeerSignatureVerificationFailed)
         }
 
         #[cfg(test)]
