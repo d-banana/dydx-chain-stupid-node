@@ -1,7 +1,7 @@
 use protobuf::CodedOutputStream;
 use merlin::Transcript;
 use hkdf::Hkdf;
-use sha2::Sha256;
+use sha2::{Sha256, Digest};
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
 use protobuf::Message;
 use x25519_dalek::{SharedSecret, PublicKey as EphemeralPublic};
@@ -49,11 +49,10 @@ pub mod write_local_ephemeral_public {
                         let local_ephemeral_public = EphemeralPublic::from(
                                 &EphemeralSecret::random_from_rng(OsRng));
 
-                        let result = write_local_ephemeral_public(
+                        write_local_ephemeral_public(
                                 &mut connection,
                                 &local_ephemeral_public
-                        );
-                        assert!(result.is_ok());
+                        ).expect("Failed to write local ephemeral public");
 
                         let message_sent = &connection.connection_fake().remote_to_read;
                         assert_eq!(message_sent.len(), MESSAGE_EPHEMERAL_PUBLIC_SIZE);
@@ -110,10 +109,10 @@ pub mod read_remote_ephemeral_public {
 
                         connection.connection_fake_mut().local_to_read = Vec::from(fake_message);
 
-                        let result = read_remote_ephemeral_public(&mut connection);
-                        assert!(result.is_ok());
+                        let remote_ephemeral_public = read_remote_ephemeral_public(&mut connection)
+                                .expect("Failed to read remote ephemeral public");
 
-                        assert_eq!(result.unwrap().as_bytes(), &([1u8; 32]));
+                        assert_eq!(remote_ephemeral_public.as_bytes(), &([1u8; 32]));
                 }
         }
 }
@@ -195,55 +194,19 @@ pub mod make_encryption_keys {
 
                 #[test]
                 pub fn make_encryption_keys_success() {
-                        assert!(
-                                make_encryption_keys(
-                                        true,
-                                        &StaticSecret::random_from_rng(OsRng)
-                                                .diffie_hellman(&PublicKey::from([8u8;32]))
-                                ).is_ok()
-                        );
+                        make_encryption_keys(
+                                true,
+                                &StaticSecret::random_from_rng(OsRng)
+                                        .diffie_hellman(&PublicKey::from([8u8;32]))
+                        ).expect("Failed to make encryption keys");
                 }
         }
 }
 
-pub mod read_write_authentication{
+pub mod make_authentication_challenge_code{
         use super::*;
-        pub fn read_write_authentication(
-                signing_key: &SigningKey,
-                local_ephemeral_public: &EphemeralPublic,
-                remote_ephemeral_public: &EphemeralPublic,
-                shared_secret: &SharedSecret,
-                connection: &mut Connection,
-                encryption: &mut Encryption
 
-        ) -> Result<()> {
-                let authentication_code = make_authentication_challenge_code(
-                        local_ephemeral_public,
-                        remote_ephemeral_public,
-                        shared_secret
-                );
-
-                let signed_authentication_message = make_signed_authentication_message(
-                        signing_key,
-                        &authentication_code
-                )?;
-
-                connection.write_all_encrypted(
-                        signed_authentication_message.as_slice(),
-                        &encryption.writer_key,
-                        &mut encryption.write_nounce
-                )?;
-
-                let remote_signed_authentication_message =
-                        read_signed_authentication_message(connection, encryption)?;
-
-                check_signed_authentication_message(
-                        &remote_signed_authentication_message,
-                        shared_secret
-                )
-        }
-
-        fn make_authentication_challenge_code(
+        pub fn make_authentication_challenge_code(
                 local_ephemeral_public: &EphemeralPublic,
                 remote_ephemeral_public: &EphemeralPublic,
                 shared_secret: &SharedSecret
@@ -267,6 +230,69 @@ pub mod read_write_authentication{
                 transcript.challenge_bytes(b"SECRET_CONNECTION_MAC", &mut message_authentication_code);
 
                 message_authentication_code
+        }
+
+        #[cfg(test)]
+        mod tests {
+                use super::*;
+                use rand_core::OsRng;
+                use x25519_dalek::EphemeralSecret;
+
+                #[test]
+                pub fn make_authentication_challenge_code_success(){
+                        let local_ephemeral_secret = EphemeralSecret::random_from_rng(OsRng);
+                        let local_ephemeral_public = EphemeralPublic::from(&local_ephemeral_secret);
+                        let remote_ephemeral_secret = EphemeralSecret::random_from_rng(OsRng);
+                        let remote_ephemeral_public = EphemeralPublic::from(&remote_ephemeral_secret);
+
+                        let local_shared_secret = local_ephemeral_secret
+                                .diffie_hellman(&remote_ephemeral_public);
+                        let remote_shared_secret = remote_ephemeral_secret
+                                .diffie_hellman(&local_ephemeral_public);
+
+                        let local_challenge = make_authentication_challenge_code(
+                                &local_ephemeral_public, &remote_ephemeral_public, &local_shared_secret);
+                        let remote_challenge = make_authentication_challenge_code(
+                                &remote_ephemeral_public, &local_ephemeral_public, &remote_shared_secret);
+
+                        // Crypto is really magic \(o.O)/
+                        assert_eq!(local_challenge, remote_challenge);
+                }
+
+        }
+
+}
+
+pub mod read_write_authentication{
+        use super::*;
+
+        pub fn read_write_authentication(
+                remote_address: &Option<[u8; 20]>,
+                signing_key: &SigningKey,
+                authentication_code: &[u8;32],
+                connection: &mut Connection,
+                encryption: &mut Encryption
+        ) -> Result<()> {
+
+                let signed_authentication_message = make_signed_authentication_message(
+                        signing_key,
+                        authentication_code
+                )?;
+
+                connection.write_all_encrypted(
+                        signed_authentication_message.as_slice(),
+                        &encryption.writer_key,
+                        &mut encryption.write_nounce
+                )?;
+
+                let remote_signed_authentication_message =
+                        read_signed_authentication_message(connection, encryption)?;
+
+                check_signed_authentication_message(
+                        remote_address,
+                        &remote_signed_authentication_message,
+                        authentication_code
+                )
         }
 
         fn make_signed_authentication_message(
@@ -311,8 +337,9 @@ pub mod read_write_authentication{
         }
 
         fn check_signed_authentication_message(
+                remote_address: &Option<[u8; 20]>,
                 signed_authentication_message: &SignedAuthenticationMessage,
-                shared_secret: &SharedSecret,
+                authentication_code: &[u8;32],
         ) -> Result<()>{
                 let remote_verification = signed_authentication_message
                         .verification_key
@@ -331,27 +358,107 @@ pub mod read_write_authentication{
                                 .as_slice()
                                 .try_into()
                                 .map_err(|_| Error::SignedAuthenticationMessageMalformed)?,
-                        shared_secret.as_bytes()
-                ).map_err(Error::RemotePeerSignatureVerificationFailed)
+                        authentication_code
+                ).map_err(Error::RemotePeerSignatureVerificationFailed)?;
+
+                let mut hasher = Sha256::new();
+                hasher.update(remote_verification.as_bytes());
+                let address_received = &hasher.finalize()[..20];
+
+                match remote_address {
+                        Some(remote_address) if remote_address == address_received =>
+                                Ok(()),
+                        Some(remote_address) =>
+                                Err(Error::RemoteAddressDoesntMatch(
+                                        remote_address.to_vec(),
+                                        address_received.to_vec()
+                                )),
+                        None =>
+                                Ok(()),
+                }
         }
 
         #[cfg(test)]
         mod tests {
-                use rand_core::OsRng;
                 use super::*;
+                use rand_core::OsRng;
 
-                // TODO add tests
                 #[test]
                 pub fn make_signed_authentication_message_success() {
                         let local_signing = SigningKey::new(OsRng);
                         let authentication_code = [8u8;32];
 
-                        let result = make_signed_authentication_message(
+                        let signed_authentication_message = make_signed_authentication_message(
                                 &local_signing,
                                 &authentication_code
-                        );
+                        ).expect("Failed to make signed authentication message");
 
-                        assert!(result.is_ok());
+                        let signed_authentication_message =
+                                SignedAuthenticationMessage::parse_from_bytes(
+                                        &signed_authentication_message[1..]
+                                ).expect("Failed to parse proto signed authentication message");
+
+                        local_signing
+                                .verification_key()
+                                .verify(
+                                        &signed_authentication_message
+                                                .signed_authentication
+                                                .as_slice()
+                                                .try_into()
+                                                .expect("Failed to make signature"),
+                                        &authentication_code
+                                ).expect("Failed to verify signature");
+                }
+
+                #[test]
+                pub fn read_check_signed_authentication_message_success(){
+                        let remote_signing = SigningKey::new(OsRng);
+                        let authentication_code = [8u8;32];
+                        let mut hasher = Sha256::new();
+                        hasher.update(remote_signing.verification_key().as_bytes());
+                        let remote_address = &hasher.finalize()[..20];
+
+                        let mut local_encryption = Encryption {
+                                reader_key: ChaCha20Poly1305::new(&[42u8; 32].into()),
+                                writer_key: ChaCha20Poly1305::new(&[41u8; 32].into()),
+                                write_nounce: 0,
+                                read_nounce: 0,
+                        };
+                        let mut remote_encryption = Encryption {
+                                reader_key: local_encryption.writer_key.clone(),
+                                writer_key: local_encryption.reader_key.clone(),
+                                write_nounce: 0,
+                                read_nounce: 0,
+                        };
+
+                        let mut local_connection = Connection::Fake(ConnectionFake::default());
+                        let mut remote_connection = Connection::Fake(ConnectionFake::default());
+
+                        let signed_authentication_message = make_signed_authentication_message(
+                                &remote_signing,
+                                &authentication_code
+                        ).expect("Failed to make signed authentication message");
+
+                        remote_connection.write_all_encrypted(
+                                &signed_authentication_message,
+                                &remote_encryption.writer_key,
+                                &mut remote_encryption.write_nounce
+                        ).expect("Failed to write signed authentication message");
+                        local_connection.connection_fake_mut().local_to_read = remote_connection
+                                .connection_fake()
+                                .remote_to_read
+                                .clone();
+
+                        let signed_authentication_message = read_signed_authentication_message(
+                                &mut local_connection,
+                                &mut local_encryption
+                        ).expect("Failed to read signed authentication message");
+
+                        check_signed_authentication_message(
+                                &Some(remote_address.try_into().expect("Fixed size")),
+                                &signed_authentication_message,
+                                &authentication_code
+                        ).expect("Failed to check signed authentication message");
                 }
         }
 }

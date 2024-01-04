@@ -17,7 +17,8 @@ use crate::peer::{
                 read_remote_ephemeral_public::read_remote_ephemeral_public,
                 write_local_ephemeral_public::write_local_ephemeral_public,
                 make_encryption_keys::make_encryption_keys,
-                read_write_authentication::read_write_authentication
+                read_write_authentication::read_write_authentication,
+                make_authentication_challenge_code::make_authentication_challenge_code
         }
 };
 
@@ -28,6 +29,8 @@ pub enum PeerAction {
 }
 
 pub struct Peer {
+        pub id: String,
+        pub address: Option<[u8; 20]>,
         pub config: Config,
         pub connection: Connection,
         pub action: PeerAction,
@@ -35,8 +38,10 @@ pub struct Peer {
 }
 
 impl Peer {
-        pub fn try_new_tcp(config: &Config, ip: [u8; 4], port: u16) -> Result<Self>{
+        pub fn try_new_tcp(config: &Config, ip: [u8; 4], port: u16, address: Option<[u8; 20]>) -> Result<Self>{
                 Ok(Peer {
+                        id: format!("{}.{}.{}.{}:{}",ip[0], ip[1], ip[2], ip[3], port),
+                        address,
                         config: config.clone(),
                         connection: Connection::Tcp(ConnectionTcp::try_new(ip, port)?),
                         action: PeerAction::Authenticate,
@@ -65,6 +70,7 @@ impl Peer {
         }
 
         fn authenticate(&mut self) -> Result<()>{
+                println!("Try to authenticate peer({})...", self.id);
                 let local_ephemeral_secret = EphemeralSecret::random_from_rng(OsRng);
                 let local_ephemeral_public = EphemeralPublic::from(&local_ephemeral_secret);
 
@@ -84,11 +90,16 @@ impl Peer {
                         &shared_secret
                 )?);
 
-                read_write_authentication(
-                        &self.config.signing_key,
+                let authentication_challenge_code = make_authentication_challenge_code(
                         &local_ephemeral_public,
                         &remote_ephemeral_public,
-                        &shared_secret,
+                        &shared_secret
+                );
+
+                read_write_authentication(
+                        &self.address,
+                        &self.config.signing_key,
+                        &authentication_challenge_code,
                         &mut self.connection,
                         self.encryption
                                 .as_mut()
@@ -97,6 +108,7 @@ impl Peer {
 
                 self.action = PeerAction::Listen;
 
+                println!("Authentication for peer({}) done.", self.id);
                 Ok(())
         }
 }
@@ -104,6 +116,8 @@ impl Peer {
 impl Default for Peer {
         fn default() -> Self {
                 Peer {
+                        id: "fake".into(),
+                        address: None,
                         config: Config::default(),
                         connection: Connection::Fake(ConnectionFake::default()),
                         action: PeerAction::Authenticate,

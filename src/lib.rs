@@ -1,3 +1,5 @@
+extern crate core;
+
 pub mod peer;
 pub mod result;
 pub mod config;

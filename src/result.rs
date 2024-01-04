@@ -17,7 +17,7 @@ pub enum Error {
         // Authentication
         MessageEphemeralPublicBadSize(Vec<u8>),
         RemoteVerificationKeyMissing,
-        RemoteVerificationKeyDoesntMatch(Vec<u8>, Vec<u8>),
+        RemoteAddressDoesntMatch(Vec<u8>, Vec<u8>),
         SignedAuthenticationMessageMalformed,
         RemotePeerSignatureVerificationFailed(ed25519_consensus::Error),
 

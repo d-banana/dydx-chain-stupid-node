@@ -1,7 +1,7 @@
 use std::io;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::net::{SocketAddr, TcpStream};
-use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305, Tag};
+use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305};
 use crate::result::{Error, Result};
 
 const POLY1305_AUTHENTICATION_TAG_BYTE_SIZE: usize = 16;
@@ -258,4 +258,85 @@ fn decrypt_message_chunk(
                         .try_into()
                         .expect("fix size")
         ))
+}
+
+#[cfg(test)]
+mod tests {
+        use super::*;
+        use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
+        use crate::peer::encryption::Encryption;
+
+        fn make_local_encryption_key() -> Encryption{
+                Encryption {
+                        reader_key: ChaCha20Poly1305::new(&[42u8; 32].into()),
+                        writer_key: ChaCha20Poly1305::new(&[41u8; 32].into()),
+                        write_nounce: 0,
+                        read_nounce: 0,
+                }
+        }
+
+        fn make_remote_encryption_key() -> Encryption{
+                Encryption {
+                        reader_key: ChaCha20Poly1305::new(&[41u8; 32].into()),
+                        writer_key: ChaCha20Poly1305::new(&[42u8; 32].into()),
+                        write_nounce: 0,
+                        read_nounce: 0,
+                }
+        }
+
+        #[test]
+        pub fn encrypt_decrypt_message_success() {
+                let mut local_encryption = make_local_encryption_key();
+                let mut remote_encryption = make_remote_encryption_key();
+                let message = b"THE MAGIC WORDS ARE SQUEAMISH OSSIFRAGE";
+
+                let message_encrypted = encrypt_message_chunk(
+                        message,
+                        &local_encryption.writer_key,
+                        &mut local_encryption.write_nounce
+                ).expect("Failed to encrypt message chunk");
+
+                let (message_len, message_decrypted) = decrypt_message_chunk(
+                        &message_encrypted,
+                        &remote_encryption.reader_key,
+                        &mut remote_encryption.read_nounce
+                ).expect("Failed to decrypt message chunk");
+
+                assert_eq!(message, &message_decrypted[..message_len as usize]);
+        }
+
+        #[test]
+        pub fn read_write_multiple_chunk_success(){
+                let mut local_encryption = make_local_encryption_key();
+                let mut remote_encryption = make_remote_encryption_key();
+
+                let mut message = Vec::with_capacity(3_000);
+                while message.len() < 3000 {
+                        match message.len() {
+                                i if i < MESSAGE_CHUNK_BYTE_SIZE => message.push(1u8),
+                                i if i < MESSAGE_CHUNK_BYTE_SIZE * 2 => message.push(2u8),
+                                i if i < 3_000 => message.push(3u8),
+                                _ => break
+                        }
+                }
+
+                let mut connection = Connection::Fake(ConnectionFake::default());
+
+                connection.write_all_encrypted(
+                        &message,
+                        &local_encryption.writer_key,
+                        &mut local_encryption.write_nounce
+                ).expect("Failed to write all encrypted");
+
+                connection.connection_fake_mut().local_to_read = connection
+                        .connection_fake().remote_to_read.clone();
+
+                let remote_message = connection
+                        .read_next_message_encrypted(
+                                &remote_encryption.reader_key,
+                                &mut remote_encryption.read_nounce
+                        ).expect("Failed to read next message encryted");
+
+                assert_eq!(message, remote_message.as_slice());
+        }
 }
