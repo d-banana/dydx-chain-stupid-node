@@ -18,7 +18,13 @@ use proto_rust::signed_authentication_message::SignedAuthenticationMessage;
 
 const MESSAGE_EPHEMERAL_PUBLIC_SIZE: usize = 35;
 
-pub mod write_local_ephemeral_public {
+pub use write_local_ephemeral_public::write_local_ephemeral_public;
+pub use read_remote_ephemeral_public::read_remote_ephemeral_public;
+pub use make_encryption_keys::make_encryption_keys;
+pub use make_authentication_challenge_code::make_authentication_challenge_code;
+pub use read_write_authentication::read_write_authentication;
+
+mod write_local_ephemeral_public {
         use super::*;
 
         pub fn write_local_ephemeral_public(
@@ -68,7 +74,7 @@ pub mod write_local_ephemeral_public {
         }
 }
 
-pub mod read_remote_ephemeral_public {
+mod read_remote_ephemeral_public {
         use super::*;
 
         pub fn read_remote_ephemeral_public(connection: &mut Connection) -> Result<EphemeralPublic>{
@@ -117,7 +123,7 @@ pub mod read_remote_ephemeral_public {
         }
 }
 
-pub mod make_encryption_keys {
+mod make_encryption_keys {
         use super::*;
 
         pub fn make_encryption_keys(
@@ -203,7 +209,7 @@ pub mod make_encryption_keys {
         }
 }
 
-pub mod make_authentication_challenge_code{
+mod make_authentication_challenge_code{
         use super::*;
 
         pub fn make_authentication_challenge_code(
@@ -263,7 +269,7 @@ pub mod make_authentication_challenge_code{
 
 }
 
-pub mod read_write_authentication{
+mod read_write_authentication{
         use super::*;
 
         pub fn read_write_authentication(

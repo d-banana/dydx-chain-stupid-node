@@ -1,4 +1,4 @@
-mod setup;
+mod authenticate;
 mod connection;
 mod encryption;
 
@@ -13,13 +13,7 @@ use crate::result::{Result};
 use crate::peer::{
         connection::*,
         encryption::Encryption,
-        setup::{
-                read_remote_ephemeral_public::read_remote_ephemeral_public,
-                write_local_ephemeral_public::write_local_ephemeral_public,
-                make_encryption_keys::make_encryption_keys,
-                read_write_authentication::read_write_authentication,
-                make_authentication_challenge_code::make_authentication_challenge_code
-        }
+        authenticate::*
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
