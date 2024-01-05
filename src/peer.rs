@@ -1,6 +1,7 @@
 mod authenticate;
 mod connection;
 mod encryption;
+mod version;
 
 use std::{thread};
 use rand_core::OsRng;
@@ -15,6 +16,7 @@ use crate::peer::{
         encryption::Encryption,
         authenticate::*
 };
+pub use version::Version as PeerVersion;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PeerAction {
@@ -94,6 +96,15 @@ impl Peer {
                         &self.address,
                         &self.config.signing_key,
                         &authentication_challenge_code,
+                        &mut self.connection,
+                        self.encryption
+                                .as_mut()
+                                .expect("already set")
+                )?;
+
+
+                read_peer_info(
+                        &self.config.version,
                         &mut self.connection,
                         self.encryption
                                 .as_mut()

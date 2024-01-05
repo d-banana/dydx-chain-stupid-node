@@ -20,6 +20,7 @@ pub enum Error {
         RemoteAddressDoesntMatch(Vec<u8>, Vec<u8>),
         SignedAuthenticationMessageMalformed,
         RemotePeerSignatureVerificationFailed(ed25519_consensus::Error),
+        PeerVersionIncompatible(crate::peer::PeerVersion, crate::peer::PeerVersion),
 
         //Proto
         ProtoWriteFailed(protobuf::Error),

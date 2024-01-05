@@ -1,6 +1,6 @@
 use clap::{Parser};
 use dydx_chain_stupid_node::config::Config;
-use dydx_chain_stupid_node::peer::Peer;
+use dydx_chain_stupid_node::peer::{Peer, PeerVersion};
 
 /// A stupidly simple implementation of the DYDX Chain, to better understand CometBFT, Cosmos SDK and DYDX, using Rust.
 #[derive(Parser)]
@@ -10,6 +10,13 @@ struct Args {
 
 fn main() {
         let _args = Args::parse();
+        let config = Config::new(PeerVersion {
+                p2p: 8,
+                block: 11,
+                app: 0,
+                tendermint: "0.37.2".into(),
+                network: "dydx-mainnet-1".into(),
+        });
         /* Remote peer
         let peer = Peer::try_new_tcp(
                 &Config::default(),
@@ -21,8 +28,9 @@ fn main() {
                         .expect("fixed size"))
         ).expect("Failed to make new peer tcp");
          */
+
         let peer = Peer::try_new_tcp(
-                &Config::default(),
+                &config,
                 [127, 0, 0, 1],
                 26656,
                 Some(hex::decode("f9b012d67cb64747eca5fbc1b8a213638cffc870")

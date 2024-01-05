@@ -12,9 +12,13 @@ use crate::result::{Result, Error};
 use crate::proto_rust;
 use crate::peer::{
         connection::*,
-        encryption::*
+        encryption::*,
+        PeerVersion
 };
-use proto_rust::signed_authentication_message::SignedAuthenticationMessage;
+use proto_rust::{
+        signed_authentication_message::SignedAuthenticationMessage,
+        peer_info_message::PeerInfo
+};
 
 const MESSAGE_EPHEMERAL_PUBLIC_SIZE: usize = 35;
 
@@ -23,6 +27,7 @@ pub use read_remote_ephemeral_public::read_remote_ephemeral_public;
 pub use make_encryption_keys::make_encryption_keys;
 pub use make_authentication_challenge_code::make_authentication_challenge_code;
 pub use read_write_authentication::read_write_authentication;
+pub use read_peer_info::read_peer_info;
 
 mod write_local_ephemeral_public {
         use super::*;
@@ -39,6 +44,8 @@ mod write_local_ephemeral_public {
                         .map_err(Error::ProtoWriteFailed)?;
 
                 connection.write_all(&message)?;
+
+                println!("Local ephemeral public sent.");
 
                 Ok(())
         }
@@ -81,7 +88,10 @@ mod read_remote_ephemeral_public {
                 let mut message = [0u8; MESSAGE_EPHEMERAL_PUBLIC_SIZE];
                 connection.read_exact(&mut message)?;
 
-                parse_message_to_ephemeral_public(&message)
+                let remote_ephemeral_public = parse_message_to_ephemeral_public(&message)?;
+
+                println!("Local ephemeral public received.");
+                Ok(remote_ephemeral_public)
         }
 
         fn parse_message_to_ephemeral_public(message: &[u8; MESSAGE_EPHEMERAL_PUBLIC_SIZE]) -> Result<EphemeralPublic>{
@@ -286,10 +296,12 @@ mod read_write_authentication{
                 )?;
 
                 connection.write_all_encrypted(
-                        signed_authentication_message.as_slice(),
+                        &signed_authentication_message,
                         &encryption.writer_key,
                         &mut encryption.write_nonce
                 )?;
+
+                println!("Signed authentication message sent.");
 
                 let remote_signed_authentication_message =
                         read_signed_authentication_message(connection, encryption)?;
@@ -297,8 +309,10 @@ mod read_write_authentication{
                 check_signed_authentication_message(
                         remote_address,
                         &remote_signed_authentication_message,
-                        authentication_code
-                )
+                        authentication_code)?;
+
+                println!("Signed authentication message received.");
+                Ok(())
         }
 
         fn make_signed_authentication_message(
@@ -335,7 +349,7 @@ mod read_write_authentication{
                         )?;
 
                 let mut coded_input_stream = CodedInputStream::from_bytes(
-                        remote_signed_authentication_message.as_slice());
+                        &remote_signed_authentication_message);
                 coded_input_stream.read_uint32().map_err(Error::ProtoReadFailed)?;
 
                 SignedAuthenticationMessage::parse_from_reader(&mut coded_input_stream)
@@ -467,4 +481,39 @@ mod read_write_authentication{
                         ).expect("Failed to check signed authentication message");
                 }
         }
+}
+
+mod read_peer_info{
+        use super::*;
+
+        pub fn read_peer_info(
+                local_version: &PeerVersion,
+                connection: &mut Connection,
+                encryption: &mut Encryption
+        ) -> Result<()> {
+                let peer_info_message_raw = connection
+                        .read_next_message_encrypted(
+                                &encryption.reader_key,
+                                &mut encryption.read_nonce
+                        )?;
+
+                let peer_version = PeerVersion::from(
+                        &parse_peer_info_message_raw(&peer_info_message_raw)?
+                );
+
+                local_version.is_compatible(&peer_version)?;
+
+                println!("Peer information received.");
+                Ok(())
+        }
+
+        fn parse_peer_info_message_raw(peer_info_message_raw: &[u8]) -> Result<PeerInfo>{
+                let mut coded_input_stream = CodedInputStream::from_bytes(
+                        peer_info_message_raw);
+                coded_input_stream.read_uint32().map_err(Error::ProtoReadFailed)?;
+
+                PeerInfo::parse_from_reader(&mut coded_input_stream)
+                        .map_err(Error::ProtoReadFailed)
+        }
+
 }

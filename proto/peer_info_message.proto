@@ -12,12 +12,12 @@ message PeerInfoOther {
 }
 
 message PeerInfo {
-  ProtocolVersion      protocol_version = 1;
-  string               default_peer_id  = 2;
-  string               listen_address   = 3;
-  string               network          = 4;
-  string               version          = 5;
-  bytes                channels         = 6;
-  string               peer_name        = 7;
-  PeerInfoOther        other            = 8;
+  ProtocolVersion      protocol_version   = 1;
+  string               default_peer_id    = 2;
+  string               listen_address     = 3;
+  string               network            = 4;
+  string               tendermint_version = 5;
+  bytes                channels           = 6;
+  string               peer_name          = 7;
+  PeerInfoOther        other              = 8;
 }
