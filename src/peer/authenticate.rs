@@ -87,8 +87,8 @@ mod read_remote_ephemeral_public {
         fn parse_message_to_ephemeral_public(message: &[u8; MESSAGE_EPHEMERAL_PUBLIC_SIZE]) -> Result<EphemeralPublic>{
                 let message_size = message[0];
 
-                let is_announced_message_size_correct = message_size as usize == MESSAGE_EPHEMERAL_PUBLIC_SIZE - 1;
-                if !is_announced_message_size_correct {
+                let is_annonced_message_size_correct = message_size as usize == MESSAGE_EPHEMERAL_PUBLIC_SIZE - 1;
+                if !is_annonced_message_size_correct {
                         return Err(Error::MessageEphemeralPublicBadSize(message.to_vec()));
                 }
 
@@ -138,8 +138,8 @@ mod make_encryption_keys {
                 Ok(Encryption{
                         reader_key: chacha_encryption_keys.reader,
                         writer_key: chacha_encryption_keys.writer,
-                        write_nounce: 0,
-                        read_nounce: 0,
+                        write_nonce: 0,
+                        read_nonce: 0,
                 })
         }
 
@@ -288,7 +288,7 @@ mod read_write_authentication{
                 connection.write_all_encrypted(
                         signed_authentication_message.as_slice(),
                         &encryption.writer_key,
-                        &mut encryption.write_nounce
+                        &mut encryption.write_nonce
                 )?;
 
                 let remote_signed_authentication_message =
@@ -331,7 +331,7 @@ mod read_write_authentication{
                 let remote_signed_authentication_message = connection
                         .read_next_message_encrypted(
                                 &encryption.reader_key,
-                                &mut encryption.read_nounce
+                                &mut encryption.read_nonce
                         )?;
 
                 let mut coded_input_stream = CodedInputStream::from_bytes(
@@ -427,14 +427,14 @@ mod read_write_authentication{
                         let mut local_encryption = Encryption {
                                 reader_key: ChaCha20Poly1305::new(&[42u8; 32].into()),
                                 writer_key: ChaCha20Poly1305::new(&[41u8; 32].into()),
-                                write_nounce: 0,
-                                read_nounce: 0,
+                                write_nonce: 0,
+                                read_nonce: 0,
                         };
                         let mut remote_encryption = Encryption {
                                 reader_key: local_encryption.writer_key.clone(),
                                 writer_key: local_encryption.reader_key.clone(),
-                                write_nounce: 0,
-                                read_nounce: 0,
+                                write_nonce: 0,
+                                read_nonce: 0,
                         };
 
                         let mut local_connection = Connection::Fake(ConnectionFake::default());
@@ -448,7 +448,7 @@ mod read_write_authentication{
                         remote_connection.write_all_encrypted(
                                 &signed_authentication_message,
                                 &remote_encryption.writer_key,
-                                &mut remote_encryption.write_nounce
+                                &mut remote_encryption.write_nonce
                         ).expect("Failed to write signed authentication message");
                         local_connection.connection_fake_mut().local_to_read = remote_connection
                                 .connection_fake()

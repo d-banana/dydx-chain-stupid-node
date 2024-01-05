@@ -8,8 +8,8 @@ const POLY1305_AUTHENTICATION_TAG_BYTE_SIZE: usize = 16;
 const MESSAGE_CHUNK_BYTE_SIZE: usize = 1_024;
 const MESSAGE_CHUNK_LEN_BYTE_SIZE: usize = 4;
 pub const MESSAGE_CHUNK_TOTAL_SIZE: usize = MESSAGE_CHUNK_BYTE_SIZE + MESSAGE_CHUNK_LEN_BYTE_SIZE + POLY1305_AUTHENTICATION_TAG_BYTE_SIZE;
-const NOUNCE_BYTE_SIZE: usize = 12;
-const NOUNCE_MAX: u128 = 2u128.pow(96) - 1;
+const NONCE_BYTE_SIZE: usize = 12;
+const NONCE_MAX: u128 = 2u128.pow(96) - 1;
 
 pub enum Connection {
         Tcp(ConnectionTcp),
@@ -56,7 +56,7 @@ impl Connection {
                 Ok(())
         }
 
-        pub fn write_all_encrypted(&mut self, message_raw: &[u8], encryption_key: &ChaCha20Poly1305, nounce: &mut u128) -> Result<()> {
+        pub fn write_all_encrypted(&mut self, message_raw: &[u8], encryption_key: &ChaCha20Poly1305, nonce: &mut u128) -> Result<()> {
                 let message_raw_len = message_raw.len();
 
                 for start in (0..message_raw_len).step_by(MESSAGE_CHUNK_BYTE_SIZE){
@@ -65,7 +65,7 @@ impl Connection {
                         let message_encrypted_chunk = encrypt_message_chunk(
                                 &message_raw[start..end],
                                 encryption_key,
-                                nounce
+                                nonce
                         )?;
 
                         self.write_all(&message_encrypted_chunk)?;
@@ -76,7 +76,7 @@ impl Connection {
                 Ok(())
         }
 
-        pub fn read_next_message_encrypted(&mut self, encryption_key: &ChaCha20Poly1305, nounce: &mut u128) -> Result<Vec<u8>> {
+        pub fn read_next_message_encrypted(&mut self, encryption_key: &ChaCha20Poly1305, nonce: &mut u128) -> Result<Vec<u8>> {
                 let mut message_raw = Vec::new();
 
                 let mut message_raw_chunk_len = MESSAGE_CHUNK_BYTE_SIZE;
@@ -88,7 +88,7 @@ impl Connection {
                         let (message_raw_chunk_len_new, message_raw_chunk) = decrypt_message_chunk(
                                 &message_encrypted_chunk,
                                 encryption_key,
-                                nounce
+                                nonce
                         )?;
 
                         message_raw_chunk_len = message_raw_chunk_len_new as usize;
@@ -179,7 +179,7 @@ impl ConnectionFake {
 fn encrypt_message_chunk(
         message_raw_chunk: &[u8],
         encryption_key: &ChaCha20Poly1305,
-        nounce: &mut u128
+        nonce: &mut u128
 ) -> Result<[u8;MESSAGE_CHUNK_TOTAL_SIZE]>{
         let mut message_encrypted_chunk = [
                 0u8;
@@ -200,17 +200,17 @@ fn encrypt_message_chunk(
 
         let tag = encryption_key
                 .encrypt_in_place_detached(
-                        nounce.to_le_bytes()
-                                [..NOUNCE_BYTE_SIZE]
+                        nonce.to_le_bytes()
+                                [..NONCE_BYTE_SIZE]
                                 .into(),
                         b"",
                         &mut message_encrypted_chunk[..MESSAGE_CHUNK_BYTE_SIZE + MESSAGE_CHUNK_LEN_BYTE_SIZE]
                 )
                 .map_err(Error::EncryptFailed)?;
 
-        *nounce += 1;
-        if *nounce >= NOUNCE_MAX {
-                return Err(Error::NounceTooBig);
+        *nonce += 1;
+        if *nonce >= NONCE_MAX {
+                return Err(Error::NonceTooBig);
         }
 
         message_encrypted_chunk
@@ -223,7 +223,7 @@ fn encrypt_message_chunk(
 fn decrypt_message_chunk(
         message_encrypted_chunk: &[u8; MESSAGE_CHUNK_TOTAL_SIZE],
         encryption_key: &ChaCha20Poly1305,
-        nounce: &mut u128
+        nonce: &mut u128
 ) -> Result<(u32, [u8; MESSAGE_CHUNK_BYTE_SIZE])>{
         let (message_encrypted_chunk, tag) = message_encrypted_chunk
                 .split_at(MESSAGE_CHUNK_BYTE_SIZE + MESSAGE_CHUNK_LEN_BYTE_SIZE);
@@ -232,17 +232,17 @@ fn decrypt_message_chunk(
         message_raw_chunk.copy_from_slice(message_encrypted_chunk);
 
         encryption_key.decrypt_in_place_detached(
-                nounce.to_le_bytes()
-                        [..NOUNCE_BYTE_SIZE]
+                nonce.to_le_bytes()
+                        [..NONCE_BYTE_SIZE]
                         .into(),
                 b"",
                 &mut message_raw_chunk,
                 tag.into()
         ).map_err(Error::DecryptFailed)?;
 
-        *nounce += 1;
-        if *nounce >= NOUNCE_MAX {
-                return Err(Error::NounceTooBig);
+        *nonce += 1;
+        if *nonce >= NONCE_MAX {
+                return Err(Error::NonceTooBig);
         }
 
         Ok((
@@ -270,8 +270,8 @@ mod tests {
                 Encryption {
                         reader_key: ChaCha20Poly1305::new(&[42u8; 32].into()),
                         writer_key: ChaCha20Poly1305::new(&[41u8; 32].into()),
-                        write_nounce: 0,
-                        read_nounce: 0,
+                        write_nonce: 0,
+                        read_nonce: 0,
                 }
         }
 
@@ -279,8 +279,8 @@ mod tests {
                 Encryption {
                         reader_key: ChaCha20Poly1305::new(&[41u8; 32].into()),
                         writer_key: ChaCha20Poly1305::new(&[42u8; 32].into()),
-                        write_nounce: 0,
-                        read_nounce: 0,
+                        write_nonce: 0,
+                        read_nonce: 0,
                 }
         }
 
@@ -293,13 +293,13 @@ mod tests {
                 let message_encrypted = encrypt_message_chunk(
                         message,
                         &local_encryption.writer_key,
-                        &mut local_encryption.write_nounce
+                        &mut local_encryption.write_nonce
                 ).expect("Failed to encrypt message chunk");
 
                 let (message_len, message_decrypted) = decrypt_message_chunk(
                         &message_encrypted,
                         &remote_encryption.reader_key,
-                        &mut remote_encryption.read_nounce
+                        &mut remote_encryption.read_nonce
                 ).expect("Failed to decrypt message chunk");
 
                 assert_eq!(message, &message_decrypted[..message_len as usize]);
@@ -325,7 +325,7 @@ mod tests {
                 connection.write_all_encrypted(
                         &message,
                         &local_encryption.writer_key,
-                        &mut local_encryption.write_nounce
+                        &mut local_encryption.write_nonce
                 ).expect("Failed to write all encrypted");
 
                 connection.connection_fake_mut().local_to_read = connection
@@ -334,7 +334,7 @@ mod tests {
                 let remote_message = connection
                         .read_next_message_encrypted(
                                 &remote_encryption.reader_key,
-                                &mut remote_encryption.read_nounce
+                                &mut remote_encryption.read_nonce
                         ).expect("Failed to read next message encryted");
 
                 assert_eq!(message, remote_message.as_slice());

@@ -29,6 +29,6 @@ pub enum Error {
         //Encryption
         EncryptFailed(chacha20poly1305::aead::Error),
         DecryptFailed(chacha20poly1305::aead::Error),
-        NounceTooBig,
+        NonceTooBig,
 
 }
